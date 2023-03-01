@@ -1,0 +1,23 @@
+{
+    "name": "axguowen/baidubce-bos",
+    "description": "baidubce php sdk bos package",
+    "keywords": [
+        "baidubce",
+        "bos"
+    ],      
+    "license": "Apache-2.0",
+    "authors": [
+        {
+            "name": "axguowen",
+            "email": "axguowen@qq.com"
+        }
+    ],
+    "require": {
+        "axguowen/baidubce-common": "^1.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "BaiduBce\\Services\\Bos\\": "src"
+        }
+    }
+}
