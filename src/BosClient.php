@@ -1605,7 +1605,6 @@ class BosClient extends BceBaseClient
      *
      * @param string $bucketName The bucket name.
      * @param string $key The object path.
-     * @param resource $outputStream
      * @param mixed $options The optional bce configuration, which will overwrite the
      *   default configuration that was passed while creating BosClient instance.
      * @return mixed
@@ -1613,7 +1612,6 @@ class BosClient extends BceBaseClient
     public function getObject(
         $bucketName,
         $key,
-        $outputStream,
         $options = array()
     ) {
         list($config, $range) = $this->parseOptions(
@@ -1655,82 +1653,10 @@ class BosClient extends BceBaseClient
                 'bucket_name' => $bucketName,
                 'key' => $key,
                 'headers' => $headers,
-                'outputStream' => $outputStream,
                 'parseUserMetadata' => true
             )
         );
         return $response;
-    }
-
-    /**
-     * Get the object cotent as string
-     *
-     * @param string $bucketName The bucket name.
-     * @param string $key The object path.
-     * @param string $range If specified, only get the range part.
-     * @param mixed $options The optional bce configuration, which will overwrite the
-     *   default configuration that was passed while creating BosClient instance.
-     * @return mixed
-     */
-    public function getObjectAsString(
-        $bucketName,
-        $key,
-        $options = array()
-    ) {
-        $outputStream = fopen('php://memory', 'r+');
-        try {
-            $this->getObject($bucketName, $key, $outputStream, $options);
-            rewind($outputStream);
-            $result = stream_get_contents($outputStream);
-            if (is_resource($outputStream)) {
-                fclose($outputStream);
-            }
-            return $result;
-        } catch (\Exception $e) {
-            if (is_resource($outputStream)) {
-                fclose($outputStream);
-            }
-            throw $e;
-        }
-    }
-
-    /**
-     * Get Content of Object and Put Content to File
-     *
-     * @param string $bucketName The bucket name.
-     * @param string $key The object path.
-     * @param string $filename The destination file name.
-     * @param string $range The HTTP 'Range' header.
-     * @param mixed $options The optional bce configuration, which will overwrite the
-     *   default configuration that was passed while creating BosClient instance.
-     *
-     * @return mixed
-     */
-    public function getObjectToFile(
-        $bucketName,
-        $key,
-        $filename,
-        $options = array()
-    )
-    {
-        $outputStream = fopen($filename, 'w+');
-        try {
-            $response = $this->getObject(
-                $bucketName,
-                $key,
-                $outputStream,
-                $options
-            );
-            if(is_resource($outputStream)) {
-                fclose($outputStream);
-            }
-            return $response;
-        } catch (\Exception $e) {
-            if(is_resource($outputStream)) {
-                fclose($outputStream);
-            }
-            throw $e;
-        }
     }
 
     /**
@@ -2518,7 +2444,6 @@ class BosClient extends BceBaseClient
             'body' => null,
             'headers' => array(),
             'params' => array(),
-            'outputStream' => null,
             'parseUserMetadata' => false
         );
 
@@ -2551,15 +2476,13 @@ class BosClient extends BceBaseClient
             $args['headers'],
             $args['params'],
             $this->signer,
-            $args['outputStream']
         );
-        if ($args['outputStream'] === null) {
-            $result = $this->parseJsonResult($response['body']);
-        } else {
-            $result = new \stdClass();
-        }
-        $result->metadata =
-            $this->convertHttpHeadersToMetadata($response['headers']);
+        
+        $result = $this->parseJsonResult($response['body']);
+        $result->metadata = $this->convertHttpHeadersToMetadata($response['headers']);
+        //返回http状态码
+		$result->statuscode = $response['statuscode'];
+        
         if ($args['parseUserMetadata']) {
             $userMetadata = array();
             foreach ($response['headers'] as $key => $value) {
