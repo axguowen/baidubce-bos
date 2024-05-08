@@ -83,9 +83,11 @@ class BosOptions
     const MAX_PARTS_COUNT = 'maxPartsCount';
     const PART_NUMBER_MARKER = 'partNumberMarker';
 
+    const BCE_TAG = 'x-bce-tagging';
     const MAX_KEYS = 'maxKeys';
     const PREFIX = 'prefix';
     const MARKER = 'marker';
+    const VERSIONID_MARKER = 'versionIdMarker';
     const DELIMITER = 'delimiter';
     const LIMIT = 'limit';
     const STORAGE_CLASS = 'storageClass';
@@ -113,6 +115,7 @@ class BosOptions
     const SYMLINK = "symlink";
     const BCE_SYMLINK_TARGET = "x-bce-symlink-target";
     const BCE_FORBID_OVERWRITE = "x-bce-forbid-overwrite";
+    const BCE_VERSION_ID = 'x-bce-version-id';
 
     const USER_QUOTA = 'userQuota';
 
