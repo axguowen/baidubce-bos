@@ -54,11 +54,73 @@ class BosClient extends BceBaseClient
      *
      * @param array $config The client configuration
      */
-    function __construct(array $config)
+    public function __construct(array $config)
     {
         parent::__construct($config, 'bos');
         $this->signer = new BceV1Signer();
         $this->httpClient = new BceHttpClient();
+    }
+
+
+    /**
+     * change default url to virtual host
+     *
+     */
+    public function genEndpoint($bucketName = "", $isBucketReq, &$config) {
+        $endpoint = $config[BceClientConfigOptions::ENDPOINT];
+        if (!strpos($endpoint, "://")) {
+            $config_protocol = strtolower(trim($config[BceClientConfigOptions::PROTOCOL]));
+            if ($config_protocol !== 'http' && $config_protocol !== 'https') {
+                throw new \InvalidArgumentException(
+                    "Invalid protocol $config_protocol."
+                );
+            }
+            $endpoint = $config_protocol . "://" . $endpoint;
+        }
+        $parsed_endpoint = parse_url($endpoint);
+        $scheme = strtolower($parsed_endpoint['scheme']);
+        if ($scheme !== 'http' && $scheme !== 'https') {
+            throw new \InvalidArgumentException(
+                "Invalid endpoint $endpoint, unsupported scheme $scheme."
+            );
+        }
+        $protocol = $scheme;
+        $host = $parsed_endpoint['host'];
+        $endpointArray = explode('.', $host);
+        if ($isBucketReq) {
+            $config[BceClientConfigOptions::CUSTOM] = false;
+            if (strpos($host, Bce::DEFAULT_BOS_DOMAIN) !== false) {
+                $lastThreeElements = array_slice($endpointArray, -3);
+                $host = implode('.', $lastThreeElements);
+            }
+        } else {
+            if ($config[BceClientConfigOptions::CUSTOM] === false) {
+                $config[BceClientConfigOptions::CUSTOM] = true;
+                if (count($endpointArray) === 3) {
+                    $host = $bucketName . '.' . $host;
+                } else {
+                    throw new \InvalidArgumentException(
+                      "Invalid endpoint, unsupport custom endpoint but config is false");
+                }
+
+            }
+        }
+        if (isset($parsed_endpoint['port'])) {
+            $port = (int) $parsed_endpoint['port'];
+        } else {
+            if ($protocol == 'http') {
+                $port = 80;
+            } else {
+                $port = 443;
+            }
+        }
+        if (($protocol === 'http' && $port === 80)
+               || ($protocol === 'https' && $port === 443)) {
+            $hostHeader = $host;
+        } else {
+            $hostHeader = "$host:$port";
+        }
+        $config[BceClientConfigOptions::ENDPOINT] = "$protocol://$hostHeader";
     }
 
     /**
@@ -98,6 +160,7 @@ class BosClient extends BceBaseClient
             $headers = array();
         }
 
+        $this->genEndpoint($bucketName, false, $config);
         $path = $this->getPath($bucketName, $key);
 
         list($hostUrl, $hostHeader) =
@@ -140,7 +203,8 @@ class BosClient extends BceBaseClient
         return $this->sendRequest(
             HttpMethod::GET,
             array(
-                BosOptions::CONFIG => $config
+                BosOptions::CONFIG => $config,
+                BosOptions::IS_BUCKET_API => true
             )
         );
     }
@@ -169,7 +233,48 @@ class BosClient extends BceBaseClient
             )
         );
     }
-
+    public function listObjectVersions($bucketName, $options = array())
+        {
+            list($config, $maxKeys, $prefix, $marker, $delimiter, $versionIdMarker) =
+                $this->parseOptions(
+                    $options,
+                    BosOptions::CONFIG,
+                    BosOptions::MAX_KEYS,
+                    BosOptions::PREFIX,
+                    BosOptions::MARKER,
+                    BosOptions::DELIMITER,
+                    BosOptions::VERSIONID_MARKER
+                );
+            $params = array();
+            if ($maxKeys !== null) {
+                if (is_numeric($maxKeys)) {
+                    $maxKeys = number_format($maxKeys);
+                    $maxKeys = str_replace(',','',$maxKeys);
+                }
+                $params[BosOptions::MAX_KEYS] = $maxKeys;
+            }
+            if ($prefix !== null) {
+                $params[BosOptions::PREFIX] = $prefix;
+            }
+            if ($marker !== null) {
+                $params[BosOptions::MARKER] = $marker;
+            }
+            if ($delimiter !== null) {
+                $params[BosOptions::DELIMITER] = $delimiter;
+            }
+            if ($versionIdMarker !== null) {
+                $params[BosOptions::VERSIONID_MARKER] = $versionIdMarker;
+            }
+            $params['versions'] = '';
+            return $this->sendRequest(
+                HttpMethod::GET,
+                array(
+                    BosOptions::CONFIG => $config,
+                    'bucket_name' => $bucketName,
+                    'params' => $params
+                )
+            );
+    }
     /**
      * Get Object Information of bucket.
      *
@@ -484,22 +589,11 @@ class BosClient extends BceBaseClient
             )
         );
     }
-
-
-
-    /**
-     * Get Access Control Level of bucket
-     *
-     * @param string $bucketName The bucket name.
-     * @param mixed $options The optional bce configuration, which will overwrite the
-     *   default configuration that was passed while creating BosClient instance.
-     * @return mixed
-     */
     public function getBucketVersioning($bucketName, $options = array())
     {
         list($config) = $this->parseOptions($options, BosOptions::CONFIG);
 
-        return $this->sendRequest(
+        $res = $this->sendRequest(
             HttpMethod::GET,
             array(
                 BosOptions::CONFIG => $config,
@@ -509,9 +603,25 @@ class BosClient extends BceBaseClient
                 )
             )
         );
+        return $res;
     }
+    public function putBucketVersioning($bucketName, $status = 'enabled', $options = array())
+    {
+        list($config) = $this->parseOptions($options, BosOptions::CONFIG);
 
-
+        $res =  $this->sendRequest(
+            HttpMethod::PUT,
+            array(
+                BosOptions::CONFIG => $config,
+                'bucket_name' => $bucketName,
+                'body' => json_encode(array('status' => $status)),
+                'params' => array(
+                    "versioning" => '',
+                )
+            )
+          );
+        return $res;
+    }
 
     /**
      * Get Region of bucket
@@ -1215,6 +1325,28 @@ class BosClient extends BceBaseClient
      *   default configuration that was passed while creating BosClient instance.
      * @return mixed
      */
+
+    public function setObjectCannedTag(
+        $bucketName,
+        $key,
+        $cannedTag = array(),
+        $options = array()
+    ) {
+        list($config) = $this->parseOptions($options, BosOptions::CONFIG);
+        return $this->sendRequest(
+            HttpMethod::PUT,
+            array(
+                BosOptions::CONFIG => $config,
+                'bucket_name' => $bucketName,
+                'key' => $key,
+                'headers' => $cannedTag,
+                'params' => array(
+                    BosOptions::TAG => '',
+                )
+            )
+        );
+    }
+
     public function setObjectAcl($bucketName, $key, $acl, $options = array())
     {
         list($config) = $this->parseOptions($options, BosOptions::CONFIG);
@@ -1228,6 +1360,55 @@ class BosClient extends BceBaseClient
                 'body' => json_encode(array('accessControlList' => $acl)),
                 'params' => array(
                     BosOptions::ACL => '',
+                )
+            )
+        );
+    }
+    public function setObjectTag($bucketName, $key, $tag, $options = array())
+    {
+        list($config) = $this->parseOptions($options, BosOptions::CONFIG);
+
+        return $this->sendRequest(
+            HttpMethod::PUT,
+            array(
+                BosOptions::CONFIG => $config,
+                'bucket_name' => $bucketName,
+                'key' => $key,
+                'body' => json_encode(array('tagSet' => $tag)),
+                'params' => array(
+                    BosOptions::TAG => '',
+                )
+            )
+          );
+    }
+    public function getObjectTag($bucketName, $key, $options = array())
+    {
+        list($config) = $this->parseOptions($options, BosOptions::CONFIG);
+
+        return $this->sendRequest(
+            HttpMethod::GET,
+            array(
+                BosOptions::CONFIG => $config,
+                'bucket_name' => $bucketName,
+                'key' => $key,
+                'params' => array(
+                    'tagging' => '',
+                )
+            )
+          );
+    }
+    public function deleteObjectTag($bucketName, $key, $options = array())
+    {
+        list($config) = $this->parseOptions($options, BosOptions::CONFIG);
+
+        return $this->sendRequest(
+            HttpMethod::DELETE,
+            array(
+                BosOptions::CONFIG => $config,
+                'bucket_name' => $bucketName,
+                'key' => $key,
+                'params' => array(
+                    BosOptions::TAG => '',
                 )
             )
         );
@@ -1437,6 +1618,28 @@ class BosClient extends BceBaseClient
             )
         );
     }
+    
+    public function RenameObject(
+        $bucketName,
+        $srcKey,
+        $targetKey,
+        $options = array()
+    ) {
+        $headers = array();
+        $headers[HttpHeaders::BCE_RENAME_SRC] = $srcKey;
+        $this->populateRequestHeadersWithOptions($headers, $options);
+        list($config) = $this->parseOptions($options, BosOptions::CONFIG);
+        return $this->sendRequest(
+            HttpMethod::POST,
+            array(
+                BosOptions::CONFIG => $config,
+                'bucket_name' => $bucketName,
+                'key' => $targetKey,
+                'headers' => $headers,
+            )
+        );
+    }
+
 
     /**
      * Fetch a object to one bucket
@@ -1605,6 +1808,7 @@ class BosClient extends BceBaseClient
      *
      * @param string $bucketName The bucket name.
      * @param string $key The object path.
+     * @param resource $outputStream
      * @param mixed $options The optional bce configuration, which will overwrite the
      *   default configuration that was passed while creating BosClient instance.
      * @return mixed
@@ -1612,6 +1816,8 @@ class BosClient extends BceBaseClient
     public function getObject(
         $bucketName,
         $key,
+        $outputStream,
+        $versionId = '',
         $options = array()
     ) {
         list($config, $range) = $this->parseOptions(
@@ -1653,10 +1859,87 @@ class BosClient extends BceBaseClient
                 'bucket_name' => $bucketName,
                 'key' => $key,
                 'headers' => $headers,
-                'parseUserMetadata' => true
+                'outputStream' => $outputStream,
+                'parseUserMetadata' => true,
+                'params' => array(
+                    BosOptions::VERSION_ID => $versionId,
+                )
             )
         );
         return $response;
+    }
+
+    /**
+     * Get the object cotent as string
+     *
+     * @param string $bucketName The bucket name.
+     * @param string $key The object path.
+     * @param string $range If specified, only get the range part.
+     * @param mixed $options The optional bce configuration, which will overwrite the
+     *   default configuration that was passed while creating BosClient instance.
+     * @return mixed
+     */
+    public function getObjectAsString(
+        $bucketName,
+        $key,
+        $versionId = '',
+        $options = array()
+    ) {
+        $outputStream = fopen('php://memory', 'r+');
+        try {
+            $this->getObject($bucketName, $key, $outputStream, $versionId, $options);
+            rewind($outputStream);
+            $result = stream_get_contents($outputStream);
+            if (is_resource($outputStream)) {
+                fclose($outputStream);
+            }
+            return $result;
+        } catch (\Exception $e) {
+            if (is_resource($outputStream)) {
+                fclose($outputStream);
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Get Content of Object and Put Content to File
+     *
+     * @param string $bucketName The bucket name.
+     * @param string $key The object path.
+     * @param string $filename The destination file name.
+     * @param string $range The HTTP 'Range' header.
+     * @param mixed $options The optional bce configuration, which will overwrite the
+     *   default configuration that was passed while creating BosClient instance.
+     *
+     * @return mixed
+     */
+    public function getObjectToFile(
+        $bucketName,
+        $key,
+        $filename,
+        $versionId = '',
+        $options = array()
+    )
+    {
+        $outputStream = fopen($filename, 'w+');
+        try {
+            $response = $this->getObject(
+                $bucketName,
+                $key,
+                $outputStream,
+                $options
+            );
+            if(is_resource($outputStream)) {
+                fclose($outputStream);
+            }
+            return $response;
+        } catch (\Exception $e) {
+            if(is_resource($outputStream)) {
+                fclose($outputStream);
+            }
+            throw $e;
+        }
     }
 
     /**
@@ -1682,6 +1965,9 @@ class BosClient extends BceBaseClient
                 BosOptions::CONFIG => $config,
                 'bucket_name' => $bucketName,
                 'key' => $key,
+                'params' => array(
+                    BosOptions::VERSION_ID => $versionId,
+                )
             )
         );
     }
@@ -1722,7 +2008,7 @@ class BosClient extends BceBaseClient
      *
      * @return mixed
      */
-    public function getObjectMetadata($bucketName, $key, $options = array())
+    public function getObjectMetadata($bucketName, $key, $versionId = '', $options = array())
     {
         list($config) = $this->parseOptions($options, BosOptions::CONFIG);
 
@@ -1732,10 +2018,12 @@ class BosClient extends BceBaseClient
                 BosOptions::CONFIG => $config,
                 'bucket_name' => $bucketName,
                 'key' => $key,
-                'parseUserMetadata' => true
+                'parseUserMetadata' => true,
+                'params' => array(
+                    BosOptions::VERSION_ID => $versionId,
+                )
             )
         );
-
         return $response->metadata;
     }
 
@@ -2444,6 +2732,7 @@ class BosClient extends BceBaseClient
             'body' => null,
             'headers' => array(),
             'params' => array(),
+            // 'outputStream' => null,
             'parseUserMetadata' => false
         );
 
@@ -2466,6 +2755,11 @@ class BosClient extends BceBaseClient
             $args['headers'][HttpHeaders::PRAGMA] = '';
         }
 
+        if (isset($varArgs[BosOptions::IS_BUCKET_API]) && $varArgs[BosOptions::IS_BUCKET_API] == true) {
+            $this->genEndpoint($args['bucket_name'], true, $config);
+        } else {
+            $this->genEndpoint($args['bucket_name'], false, $config);
+        }
         $path = $this->getPath($args['bucket_name'], $args['key']);
 
         $response = $this->httpClient->sendRequest(
@@ -2476,6 +2770,7 @@ class BosClient extends BceBaseClient
             $args['headers'],
             $args['params'],
             $this->signer,
+            // $args['outputStream']
         );
         
         $result = $this->parseJsonResult($response['body']);
@@ -2535,7 +2830,8 @@ class BosClient extends BceBaseClient
             $xBceSideEncryption,
             $userMetadata,
             $xBceProcess,
-            $xBceForbidOverwrite
+            $xBceForbidOverwrite,
+            $xBceTagging
         ) = $this->parseOptionsIgnoreExtra(
             $options,
             BosOptions::CONTENT_TYPE,
@@ -2551,7 +2847,8 @@ class BosClient extends BceBaseClient
             BosOptions::BCE_SERVER_SIDE_ENCRYPTION,
             BosOptions::USER_METADATA,
             BosOptions::BCE_PROCESS,
-            BosOptions::BCE_FORBID_OVERWRITE
+            BosOptions::BCE_FORBID_OVERWRITE,
+            BosOptions::BCE_TAG
         );
         if ($contentType !== null) {
             $headers[HttpHeaders::CONTENT_TYPE] = $contentType;
@@ -2609,6 +2906,11 @@ class BosClient extends BceBaseClient
             $headers[HttpHeaders::BCE_FORBID_OVERWRITE] = $xBceForbidOverwrite;
             unset($options[BosOptions::BCE_FORBID_OVERWRITE]);
         }
+        if ($xBceTagging !== null) {
+            $headers[HttpHeaders::BCE_TAG] = $xBceTagging;
+            unset($options[BosOptions::BCE_TAG]);
+        }
+        
         reset($options);
     }
 

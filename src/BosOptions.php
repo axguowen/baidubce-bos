@@ -126,4 +126,8 @@ class BosOptions
     const COMPLETE_OBJECT_LOCK = 'completeobjectlock';
     const DELETE = 'delete';
     const RESTORE = 'restore';
+    const VERSION_ID = 'versionId';
+    const TAG = 'tagging';
+
+    const IS_BUCKET_API = 'isBucketApi';
 } 
