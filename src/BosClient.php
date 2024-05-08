@@ -160,7 +160,7 @@ class BosClient extends BceBaseClient
             $headers = array();
         }
 
-        $this->genEndpoint($bucketName, false, $config);
+        // $this->genEndpoint($bucketName, false, $config);
         $path = $this->getPath($bucketName, $key);
 
         list($hostUrl, $hostHeader) =
@@ -2755,11 +2755,11 @@ class BosClient extends BceBaseClient
             $args['headers'][HttpHeaders::PRAGMA] = '';
         }
 
-        if (isset($varArgs[BosOptions::IS_BUCKET_API]) && $varArgs[BosOptions::IS_BUCKET_API] == true) {
-            $this->genEndpoint($args['bucket_name'], true, $config);
-        } else {
-            $this->genEndpoint($args['bucket_name'], false, $config);
-        }
+        // if (isset($varArgs[BosOptions::IS_BUCKET_API]) && $varArgs[BosOptions::IS_BUCKET_API] == true) {
+        //     $this->genEndpoint($args['bucket_name'], true, $config);
+        // } else {
+        //     $this->genEndpoint($args['bucket_name'], false, $config);
+        // }
         $path = $this->getPath($args['bucket_name'], $args['key']);
 
         $response = $this->httpClient->sendRequest(
