@@ -1952,7 +1952,7 @@ class BosClient extends BceBaseClient
      *
      * @return mixed
      */
-    public function deleteObject($bucketName, $key, $options = array())
+    public function deleteObject($bucketName, $key, $versionId = '', $options = array())
     {
         list($config) = $this->parseOptions(
             $options,
