@@ -13,7 +13,7 @@
         }
     ],
     "require": {
-        "axguowen/baidubce-common": "^2.0"
+        "axguowen/baidubce-common": "^2.0||dev-master"
     },
     "autoload": {
         "psr-4": {
